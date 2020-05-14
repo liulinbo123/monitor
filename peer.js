@@ -6,8 +6,8 @@ var nets = require('nets')
 var getUserMedia = require('./get-user-media.js')()
 
 module.exports = function create () {
-  var server = 'http://catlobby.maxogden.com'
-  // var server = 'http://localhost:5005'
+  // var server = 'http://catlobby.maxogden.com'
+  var server = 'http://localhost:5005'
   var remoteConfigUrl = 'https://instant.io/rtcConfig'
   if (process.browser) remoteConfigUrl = 'http://cors.maxogden.com/' + remoteConfigUrl
 
@@ -77,7 +77,6 @@ module.exports = function create () {
     console.log('getting pings', pingsUrl)
     var events = new EventSource(pingsUrl)
     events.onmessage = function onMessage (e) {
-      console.log('pings onmessage', e.data)
       var row
       try {
         row = JSON.parse(e.data)
@@ -89,16 +88,17 @@ module.exports = function create () {
       if (!row.data) {
         return
       }
-
+      console.log('remotePeer 解压')
       inflate(row.data, function inflated (err, stringified) {
         if (err) return cb(err)
-
         pc.emit('getting-audio')
         getAudio(function got (err, audioStream) {
           if (err) return handleRTCErr(err, cb)
           var peer = new SimplePeer({ trickle: false, config: config })
           if (audioStream) peer._pc.addStream(audioStream)
-          peer.signal(JSON.parse(stringified.toString()))
+          var jsonStr = stringified.toString()
+          jsonStr = jsonStr.substring(0, jsonStr.indexOf('}') + 1)
+          peer.signal(JSON.parse(jsonStr))
           cb(null, peer)
         })
       })
@@ -129,26 +129,27 @@ module.exports = function create () {
     // listen for pongs
     var events = new EventSource(server + '/v1/' + room + '/pongs')
     events.onmessage = function onMessage (e) {
-      console.log('pongs onmessage', e.data)
       var row
       try {
         row = JSON.parse(e.data)
       } catch (e) {
         return cb(new Error('Error connecting. Please start over.'))
       }
-
+      console.log(row.ready)
       // other side is ready
       if (row.ready) {
         connect(row.data)
       }
-
       // sdp from other side
       if (row.data) {
+        console.log('hostPeer 解压')
         inflate(row.data, function inflated (err, stringified) {
+          console.log('errrrrr:', err)
+          console.log('stringified:', stringified)
           if (err) {
             return cb(new Error('Error connecting. Please start over.'))
           }
-
+          console.log('信号传递')
           peer.signal(JSON.parse(stringified.toString()))
         })
         events.close()
@@ -195,9 +196,14 @@ module.exports = function create () {
       if (remote) uploadURL += '/pong'
       else uploadURL += '/ping'
 
-      console.log('POST', uploadURL)
-      nets({method: 'POST', json: {data: data}, uri: uploadURL}, function response (err, resp, body) {
-        if (err || resp.statusCode > 299) return cb(err)
+      console.log('通信地址', uploadURL)
+      var req = nets({method: 'POST', json: {data : data}, uri: uploadURL}, function response (err, resp, body) {
+        console.log(err)
+        console.log(resp)
+        console.log(body)
+        if (err || resp.statusCode > 299) {
+          return cb(err)
+        }
         cb(null)
       })
     })
@@ -266,26 +272,31 @@ module.exports = function create () {
 
   function videoElement (stream) {
     var video = document.createElement('video')
-    video.src = window.URL.createObjectURL(stream)
+    // video.src = window.URL.createObjectURL(stream)
+    video.srcObject  = stream
     video.autoplay = true
     return video
   }
 
   function audioElement (stream) {
     var audio = document.createElement('audio')
-    audio.src = window.URL.createObjectURL(stream)
+    // audio.src = window.URL.createObjectURL(stream)
+    audio.srcObject  = stream
     audio.autoplay = true
     return audio
   }
 
   function inflate (data, cb) {
-    data = decodeURIComponent(data.toString())
-    zlib.inflate(new Buffer(data, 'base64'), cb)
+    var pongdata = decodeURIComponent(data)
+    var str = new Buffer(pongdata, 'base64');
+    console.log('解压使用的数据', pongdata) 
+    zlib.inflate(str, cb)
   }
 
   function deflate (data, cb) {
     // sdp is ~2.5k usually, that's too big for a URL, so we zlib deflate it
     var stringified = JSON.stringify(data)
+    console.log("压缩使用的数据：", stringified)
     zlib.deflate(stringified, function (err, deflated) {
       if (err) {
         cb(err)
@@ -293,6 +304,7 @@ module.exports = function create () {
       }
       var connectionString = deflated.toString('base64')
       var code = encodeURIComponent(connectionString)
+      console.log('压缩结果', code)
       cb(null, code)
     })
   }
