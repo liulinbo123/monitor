@@ -29,7 +29,7 @@
     "browserify": "^9.0.8",
     "electron-packager": "^4.1.0",
     "electron-prebuilt": "^0.36.0",
-    "node-sass": "^3.4.1",
+    "node-sass": "^4.13.1",
     "standard": "^5.3.1",
     "tachyons": "^1.2.0",
     "wzrd": "^1.2.1"
